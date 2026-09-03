@@ -16,7 +16,7 @@ st.write("Detect potholes from images and videos using YOLO.")
 
 @st.cache_resource
 def load_model():
-    return YOLO(r"pothole2\best.pt")
+    return YOLO(r"pothole\best.pt")
 
 
 model = load_model()
