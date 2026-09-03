@@ -5,13 +5,18 @@ import cv2
 import tempfile
 import os
 
+
+
 st.set_page_config(
     page_title="Pothole Detection",
     layout="wide"
 )
 
-st.title("Pothole Detection")
-st.write("Detect potholes from images and videos using YOLO.")
+st.title("Pothole & Traffic Sign Detection")
+st.write(
+    "Detect potholes and traffic signs from images and videos using YOLO."
+)
+
 
 
 @st.cache_resource
@@ -20,6 +25,53 @@ def load_model():
 
 
 model = load_model()
+
+
+
+# model.names can be either a dictionary or a list
+if isinstance(model.names, dict):
+    class_names = model.names
+else:
+    class_names = {
+        i: name for i, name in enumerate(model.names)
+    }
+
+
+
+def count_detections(result):
+    """
+    Count potholes and traffic signs
+    from one YOLO detection result.
+    """
+
+    potholes = 0
+    traffic_signs = 0
+
+    for box in result.boxes:
+
+        class_id = int(box.cls[0])
+
+        class_name = str(
+            class_names[class_id]
+        ).lower().strip()
+
+        # Normalize class name
+        normalized_name = class_name.replace("_", " ")
+
+
+        if "pothole" in normalized_name:
+            potholes += 1
+
+
+
+        elif (
+            "traffic sign" in normalized_name
+            or "traffic-sign" in normalized_name
+            or "trafficsign" in normalized_name
+        ):
+            traffic_signs += 1
+
+    return potholes, traffic_signs
 
 
 conf = st.slider(
@@ -31,10 +83,14 @@ conf = st.slider(
 )
 
 
-image_tab, video_tab = st.tabs([
-    "Image Detection",
-    "Video Detection"
-])
+
+image_tab, video_tab = st.tabs(
+    [
+        "Image Detection",
+        "Video Detection"
+    ]
+)
+
 
 
 
@@ -44,7 +100,11 @@ with image_tab:
 
     uploaded_image = st.file_uploader(
         "Upload an image",
-        type=["jpg", "jpeg", "png"],
+        type=[
+            "jpg",
+            "jpeg",
+            "png"
+        ],
         key="image_uploader"
     )
 
@@ -52,7 +112,9 @@ with image_tab:
 
         image = Image.open(uploaded_image)
 
+
         col1, col2 = st.columns(2)
+
 
         with col1:
 
@@ -63,13 +125,17 @@ with image_tab:
                 use_container_width=True
             )
 
+
         results = model.predict(
             source=image,
             conf=conf,
             verbose=False
         )
 
-        result_image = results[0].plot()
+        result = results[0]
+
+
+        result_image = result.plot()
 
 
         with col2:
@@ -83,19 +149,44 @@ with image_tab:
             )
 
 
-        potholes = len(results[0].boxes)
+        potholes, traffic_signs = count_detections(
+            result
+        )
 
-        if potholes > 0:
 
-            st.success(
-                f"Detected potholes: {potholes}"
+        st.divider()
+
+        st.subheader("Detection Results")
+
+        metric1, metric2 = st.columns(2)
+
+        with metric1:
+
+            st.metric(
+                label="Potholes",
+                value=potholes
+            )
+
+        with metric2:
+
+            st.metric(
+                label="Traffic Signs",
+                value=traffic_signs
+            )
+
+
+        if potholes == 0 and traffic_signs == 0:
+
+            st.info(
+                "No potholes or traffic signs detected."
             )
 
         else:
 
-            st.info(
-                "No potholes detected."
+            st.success(
+                "Detection completed successfully."
             )
+
 
 with video_tab:
 
@@ -103,7 +194,12 @@ with video_tab:
 
     uploaded_video = st.file_uploader(
         "Upload a video",
-        type=["mp4", "avi", "mov", "mkv"],
+        type=[
+            "mp4",
+            "avi",
+            "mov",
+            "mkv"
+        ],
         key="video_uploader"
     )
 
@@ -126,14 +222,19 @@ with video_tab:
 
         st.subheader("Original Video")
 
-        st.video(input_path)
+        st.video(
+            input_path
+        )
+
 
         if st.button(
-            "Detect Potholes",
+            "Detect Potholes & Traffic Signs",
             key="video_detection_button"
         ):
 
-            cap = cv2.VideoCapture(input_path)
+            cap = cv2.VideoCapture(
+                input_path
+            )
 
             if not cap.isOpened():
 
@@ -143,12 +244,17 @@ with video_tab:
 
                 st.stop()
 
+
             width = int(
-                cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                cap.get(
+                    cv2.CAP_PROP_FRAME_WIDTH
+                )
             )
 
             height = int(
-                cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                cap.get(
+                    cv2.CAP_PROP_FRAME_HEIGHT
+                )
             )
 
             fps = cap.get(
@@ -156,8 +262,11 @@ with video_tab:
             )
 
             total_frames = int(
-                cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                cap.get(
+                    cv2.CAP_PROP_FRAME_COUNT
+                )
             )
+
 
             if fps <= 0:
                 fps = 30
@@ -171,7 +280,6 @@ with video_tab:
 
             output_path = output_file.name
 
-
             fourcc = cv2.VideoWriter_fourcc(
                 *"mp4v"
             )
@@ -183,12 +291,25 @@ with video_tab:
                 (width, height)
             )
 
+            if not writer.isOpened():
+
+                cap.release()
+
+                st.error(
+                    "Could not create output video."
+                )
+
+                st.stop()
+
             progress_bar = st.progress(0)
 
             status_text = st.empty()
 
             frame_count = 0
-            total_detections = 0
+
+            total_potholes = 0
+
+            total_traffic_signs = 0
 
 
             while True:
@@ -198,25 +319,39 @@ with video_tab:
                 if not ret:
                     break
 
+
                 results = model.predict(
                     source=frame,
                     conf=conf,
                     verbose=False
                 )
 
-                annotated_frame = results[0].plot()
+                result = results[0]
 
-                detections = len(
-                    results[0].boxes
+
+
+                frame_potholes, frame_traffic_signs = (
+                    count_detections(result)
                 )
 
-                total_detections += detections
+
+
+                total_potholes += frame_potholes
+
+                total_traffic_signs += frame_traffic_signs
+
+
+
+                annotated_frame = result.plot()
+
+
 
                 writer.write(
                     annotated_frame
                 )
 
                 frame_count += 1
+
 
 
                 if total_frames > 0:
@@ -234,8 +369,11 @@ with video_tab:
                         f"{frame_count}/{total_frames} frames"
                     )
 
+
             cap.release()
+
             writer.release()
+
 
             progress_bar.progress(1.0)
 
@@ -243,11 +381,14 @@ with video_tab:
                 "Video processing completed!"
             )
 
+
             if os.path.exists(output_path):
 
                 st.subheader(
                     "Detection Result"
                 )
+
+
 
                 with open(
                     output_path,
@@ -260,10 +401,40 @@ with video_tab:
                 st.video(
                     video_bytes
                 )
-                st.success(
-                    f"Total detections across frames: "
-                    f"{total_detections}"
+
+
+
+                st.divider()
+
+                st.subheader(
+                    "Detection Results"
                 )
+
+                metric1, metric2 = st.columns(2)
+
+                with metric1:
+
+                    st.metric(
+                        label="Potholes",
+                        value=total_potholes
+                    )
+
+                with metric2:
+
+                    st.metric(
+                        label="Traffic Signs",
+                        value=total_traffic_signs
+                    )
+
+
+
+                st.caption(
+                    "Note: Counts represent detections across "
+                    "video frames. The same object can be counted "
+                    "multiple times if it appears in multiple frames."
+                )
+
+
 
                 st.download_button(
                     label="Download Result Video",
@@ -271,7 +442,10 @@ with video_tab:
                     file_name="pothole_detection.mp4",
                     mime="video/mp4"
                 )
+
             else:
+
                 st.error(
                     "Could not create output video."
                 )
+
